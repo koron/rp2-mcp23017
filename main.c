@@ -45,32 +45,40 @@ static bool mcp23017_write(uint8_t devid, uint8_t reg, const uint8_t* buf, size_
     return true;
 }
 
-static void mcp23017_dump(uint8_t devid, uint8_t reg, size_t n) {
+static bool mcp23017_dump(uint8_t devid, uint8_t reg, size_t n) {
     uint8_t buf[21] = {0};
     if (!mcp23017_read(devid, reg, buf, n)) {
-        return;
+        return false;
     }
     printf("MCP23017: dump %02x %02x:", devid, reg);
     for (size_t i = 0; i < n; i++) {
         printf(" %02x", buf[i]);
     }
     printf("\n");
+    return true;
 }
 
-static void mcp23017_iodir_read() {
+static bool mcp23017_iodir_dump() {
     // read IODIR
     printf("*** read IODIR\n");
-    mcp23017_dump(0x00, 0x00, 2);
-    mcp23017_dump(0x01, 0x00, 2);
+    if (!mcp23017_dump(0x00, 0x00, 2)) {
+        return false;
+    }
+    if (!mcp23017_dump(0x01, 0x00, 2)) {
+        return false;
+    }
+    return true;
 }
 
-static uint16_t mcp23017_gpio_read(uint8_t devid) {
-    uint16_t retval = 0xff;
+static bool mcp23017_gpio_read(uint8_t devid, uint16_t *out) {
     uint8_t data[2] = {0};
-    if (mcp23017_read(devid, 0x12, data, 2)) {
-        retval = (uint16_t)data[0] << 8 | data[1];
+    if (!mcp23017_read(devid, 0x12, data, 2)) {
+        return false;
     }
-    return retval;
+    if (out != NULL) {
+        *out = (uint16_t)data[0] << 8 | data[1];
+    }
+    return true;
 }
 
 int main() {
@@ -79,7 +87,7 @@ int main() {
 
     onboard_led_init();
 
-    i2c_init(i2c_default, 400 * 1000);
+    i2c_init(i2c_default, 1000 * 1000);
     gpio_set_function(PICO_DEFAULT_I2C_SDA_PIN, GPIO_FUNC_I2C);
     gpio_set_function(PICO_DEFAULT_I2C_SCL_PIN, GPIO_FUNC_I2C);
     gpio_pull_up(PICO_DEFAULT_I2C_SDA_PIN);
@@ -88,7 +96,7 @@ int main() {
     bi_decl(bi_2pins_with_func(PICO_DEFAULT_I2C_SDA_PIN, PICO_DEFAULT_I2C_SCL_PIN, GPIO_FUNC_I2C));
 
 
-    mcp23017_iodir_read();
+    mcp23017_iodir_dump();
 
     printf("*** dump GPPU #0\n");
     mcp23017_dump(0, 0x0c, 2);
@@ -110,7 +118,11 @@ int main() {
         uint64_t now = time_us_64();
         onboard_led_task(now);
         for (uint8_t devid = 0; devid < 2; devid++) {
-            uint16_t v = mcp23017_gpio_read(devid);
+            uint16_t v;
+            if (!mcp23017_gpio_read(devid, &v)) {
+                printf("GPIO read failure: devid=%d\n", devid);
+                return 1;
+            }
             if (v != gpio[devid]) {
                 gpio[devid] = v;
                 printf("changed#%d: %04x (now=%llu)\n", devid, v, now);
